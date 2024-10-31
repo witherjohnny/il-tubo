@@ -1,12 +1,21 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
-const int hallPins[] = {8, 9, 10, 11, 12, 13};  // Pin a cui sono collegati i 6 sensori di Hall
-const int nSensori =2;
-unsigned long times[nSensori];                         // Vettore per memorizzare i tempi di passaggio
-bool sensorActivated[] = {false, false, false, false, false, false};  // Stato attivazione dei sensori
+/* 
+SDA -> analogico4
+SCL -> analogico5
+ */
 
-const int btnNext = 6;   // Pin del pulsante "Avanti"
-const int btnPrev = 7;   // Pin del pulsante "Indietro"
+
+const int hallPins[] = {7,8, 9, 10, 11, 12, 13};  // Pin a cui sono collegati i 6 sensori di Hall
+const int nSensori =7;
+float times[nSensori] = {-1,-1,-1,-1,-1,-1,-1};                         // Vettore per memorizzare i tempi di passaggio
+bool sensorActivated[] = {false, false, false, false, false, false,false};  // Stato attivazione dei sensori
+
+const int btnReset = 4;   // Pin del pulsante "Reset"
+const int btnNext = 5;   // Pin del pulsante "Avanti"
+const int btnPrev =6;   // Pin del pulsante "Indietro"
+const int ledVerde = 1;  
+const int ledRosso = 2;  
 
 unsigned long startTime = 0;                    // Tempo di inizio
 bool isFirst = true;                          // Flag per indicare se il timer è partito
@@ -26,12 +35,23 @@ void setup() {
     pinMode(hallPins[i], INPUT);
   }
   
+  pinMode(ledVerde, OUTPUT);
+  pinMode(ledRosso, OUTPUT);
+
   Serial.begin(9600);  // Avvia la comunicazione seriale per il monitor seriale
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("pronto per  ");
+  lcd.setCursor(0, 1);
+  lcd.print("iniziare ");
 }
 
 void loop() {
-  
   if(!finito){
+
+    digitalWrite(ledVerde,HIGH);
+    digitalWrite(ledRosso,LOW);
+    
     for (int i = 0; i < nSensori; i++) {
       int sensorState = digitalRead(hallPins[i]); // Legge lo stato del sensore
 
@@ -48,10 +68,15 @@ void loop() {
           startTime = millis();
           isFirst = false;
           Serial.println("Timer partito!");
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print("misure in ");
+          lcd.setCursor(0, 1);
+          lcd.print("corso ");
         }
 
         // Salva il tempo trascorso per il sensore attivato
-        times[i] = (millis() - startTime) / 1000; // Tempo in secondi
+        times[i] = (millis() - startTime) ; // Tempo in secondi
         sensorCount++;
 
         Serial.print("Sensore ");
@@ -61,32 +86,76 @@ void loop() {
         Serial.println(" secondi");
         
         if (sensorCount == nSensori) {
+          Serial.println("finito");
           finito= true;
+          digitalWrite(ledVerde,LOW);
+          digitalWrite(ledRosso,HIGH);
         }
         
       }
-      delay(33); // Delay di 33 secondi
     }
 
   }else{
-// Gestione dello scorrimento dei dati con i pulsanti
-    if (digitalRead(btnNext) == LOW) {
-      currentIndex++;
-      if (currentIndex >= nSensori) currentIndex = 0;
-      mostraDati();
-      delay(200);  // Debounce per evitare doppie letture
+    for( int i =0; i< nSensori; i++){
+      if(!sensorActivated[i]){ //controllo dati mancanti
+        finito=false;
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("dati mancanti ");
+        lcd.setCursor(0, 1);
+        lcd.print("riprovare ");
+        delay(3000);
+        reset();
+        break;
+
+      }
     }
-
-    if (digitalRead(btnPrev) == LOW) {
-      currentIndex--;
-      if (currentIndex < 0) currentIndex = nSensori - 1;
+    digitalWrite(ledVerde,LOW);
+    digitalWrite(ledRosso,HIGH);
+    if(finito){ //secondo controllo perche esiste la possibilita di dati mancanti gestito con il controllo precedente
+    // Gestione dello scorrimento dei dati con i pulsanti
+      
+    
       mostraDati();
-      delay(200);  // Debounce per evitare doppie letture
+      if (digitalRead(btnNext) == HIGH) {
+        currentIndex++;
+        if (currentIndex >= nSensori) currentIndex = 0;
+        mostraDati();
+        delay(200);  // Debounce per evitare doppie letture
+      }
+      else if (digitalRead(btnPrev) == HIGH) {
+        currentIndex--;
+        if (currentIndex < 0) currentIndex = nSensori - 1;
+        mostraDati();
+        delay(200);  // Debounce per evitare doppie letture
+      }
+      else if(digitalRead(btnReset)== HIGH){
+        reset();
+      }
+      delay(33);
     }
-
-
-
   }
+  
+}
+void reset(){
+  finito = false;
+  for ( int i = 0; i< nSensori; i++){
+    times[i] = -1;
+    sensorActivated[i]=false;
+  }
+  isFirst = true; 
+  sensorCount = 0; 
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("resettato ");
+  delay(2000);
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.setCursor(0, 0);
+  lcd.print("pronto per  ");
+  lcd.setCursor(0, 1);
+  lcd.print("iniziare ");
+      
 }
 void mostraDati() {
   lcd.clear();
@@ -95,17 +164,12 @@ void mostraDati() {
   lcd.print(currentIndex + 1);
   lcd.print(":");
   lcd.setCursor(0, 1);
-  lcd.print(times[currentIndex]);
-  lcd.print(" s");
+  if(times[currentIndex] ==-1){
+      lcd.print("dato mancante");
+      lcd.print(" s");
+  }else{
+    lcd.print(times[currentIndex]);
+  }
 
-  // Alla fine mostra la legge della caduta di un grave (tempo al quadrato)
-  /* if (currentIndex == nSensori - 1) {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Caduta grave:");
-    lcd.setCursor(0, 1);
-    lcd.print("t^2 = ");
-    lcd.print(times[currentIndex] * times[currentIndex]);
-    lcd.print(" s^2");
-  } */
+  
 }
